@@ -48,144 +48,174 @@
    
 #### 2. root 上下文的初始化
    
+   org.springframework.web.context.ContextLoaderListener  实现了 ServletContextListener,  该接口有以下两个方法:
+   
+   ```
+      /**
+       * 
+       * 收到web应用初始化进程开始的通知
+       * 所有ServletContextListeners将会在filter或者servlet初始化之前被通知
+       *
+       */
+      public void contextInitialized(ServletContextEvent event), 
+      /**
+       * 收到ServletContext将要关闭的通知
+       * 所有servlet或者filter将会在servletContext被通知之前被销毁
+       */
+      public void contextDestroyed(ServletContextEvent event); 
+   ```
+   
+   
+   ContextLoaderListener继承于ContextLoader, 上面两个方法将委托于父类的方法完成。 
+   ```
+   /**
+   	 * Initialize the root web application context.
+   	 */
+   	@Override
+   	public void contextInitialized(ServletContextEvent event) {
+   		initWebApplicationContext(event.getServletContext());
+   	}
+   
+   
+   	/**
+   	 * Close the root web application context.
+   	 */
+   	@Override
+   	public void contextDestroyed(ServletContextEvent event) {
+   		closeWebApplicationContext(event.getServletContext());
+   		ContextCleanupListener.cleanupAttributes(event.getServletContext());
+   	}
+   ```
+   
+
+#### 3. ContextLoader的初始化过程     
    // ===========================  
-   // 初始化上下文 
-   ##### 2.1) 初始化上下文的步骤
-    
-   ```
-    public WebApplicationContext initWebApplicationContext(ServletContext servletContext) {
-        1. 在servletContext属性中检测是否已经存在 rootWebApplicationContext, 
-        2. 创建web application context 到 本地变量
-           // Store context in local instance variable, to guarantee that
-            // it is available on ServletContext shutdown.
-            if (this.context == null) {
-                this.context = createWebApplicationContext(servletContext);  // 仅仅是通过反射创建实例 
-            }
-            
-        3.  如果是 ConfigurableWebApplicationContext 的实例, 
-            则加载父类上下文 (loadParentContext(ServletContext servletContext) )
-            然后配置刷新上下文. (configureAndRefreshWebApplicationContext(cwac, servletContext);)
-            
-        4.  设置实例化的上下文到 servletContext
-        
-        5.  返回上下文          
-   
-    }
-   ```
-   
-   
+   // 初始化上下文    
+   ##### 3.1) 初始化上下文的步骤
+       
+      ```
+       public WebApplicationContext initWebApplicationContext(ServletContext servletContext) {
+           1. 在servletContext属性中检测是否已经存在 rootWebApplicationContext, 
+           2. 创建web application context 到 本地变量
+              // Store context in local instance variable, to guarantee that
+               // it is available on ServletContext shutdown.
+               if (this.context == null) {
+                   this.context = createWebApplicationContext(servletContext);  // 仅仅是通过反射创建实例 
+               }
+               
+           3.  如果是 ConfigurableWebApplicationContext 的实例, 
+               则加载父类上下文 (loadParentContext(ServletContext servletContext) )
+               然后配置刷新上下文. (configureAndRefreshWebApplicationContext(cwac, servletContext);)
+               
+           4.  设置实例化的上下文到 servletContext
+           
+           5.  返回上下文          
+      
+       }
+      ```
+      
+      
    ###### 对于可配置的上下文, 尝试加载父上下文
-   
-   ```
-   protected ApplicationContext loadParentContext(ServletContext servletContext) {
-   		ApplicationContext parentContext = null;
-   		String locatorFactorySelector = servletContext.getInitParameter(LOCATOR_FACTORY_SELECTOR_PARAM);
-   		String parentContextKey = servletContext.getInitParameter(LOCATOR_FACTORY_KEY_PARAM);
-   
-   		if (parentContextKey != null) {
-   		    // 单例bean工厂定位符 
-   			// locatorFactorySelector may be null, indicating the default "classpath*:beanRefContext.xml"
-   			BeanFactoryLocator locator = ContextSingletonBeanFactoryLocator.getInstance(locatorFactorySelector);
-   			Log logger = LogFactory.getLog(ContextLoader.class);
-   			if (logger.isDebugEnabled()) {
-   				logger.debug("Getting parent context definition: using parent context key of '" +
-   						parentContextKey + "' with BeanFactoryLocator");
-   			}
-   			// 使用单例的BeanFactory, context实现了BeanFactory接口.
-   			this.parentContextRef = locator.useBeanFactory(parentContextKey);
-   			parentContext = (ApplicationContext) this.parentContextRef.getFactory();
-   		}
-   
-   		return parentContext;
-   	}
-   ```
-    
+      
+      ```
+      protected ApplicationContext loadParentContext(ServletContext servletContext) {
+      		ApplicationContext parentContext = null;
+      		String locatorFactorySelector = servletContext.getInitParameter(LOCATOR_FACTORY_SELECTOR_PARAM);
+      		String parentContextKey = servletContext.getInitParameter(LOCATOR_FACTORY_KEY_PARAM);
+      
+      		if (parentContextKey != null) {
+      		    // 单例bean工厂定位符 
+      			// locatorFactorySelector may be null, indicating the default "classpath*:beanRefContext.xml"
+      			BeanFactoryLocator locator = ContextSingletonBeanFactoryLocator.getInstance(locatorFactorySelector);
+      			Log logger = LogFactory.getLog(ContextLoader.class);
+      			if (logger.isDebugEnabled()) {
+      				logger.debug("Getting parent context definition: using parent context key of '" +
+      						parentContextKey + "' with BeanFactoryLocator");
+      			}
+      			// 使用单例的BeanFactory, context实现了BeanFactory接口.
+      			this.parentContextRef = locator.useBeanFactory(parentContextKey);
+      			parentContext = (ApplicationContext) this.parentContextRef.getFactory();
+      		}
+      
+      		return parentContext;
+      	}
+      ```
+       
    ###### 配置和刷新应用上下文 
-   ```
-   protected void configureAndRefreshWebApplicationContext(ConfigurableWebApplicationContext wac, ServletContext sc) {
-        //1. 上下文id
-   		if (ObjectUtils.identityToString(wac).equals(wac.getId())) {
-   			// The application context id is still set to its original default value
-   			// -> assign a more useful id based on available information
-   			String idParam = sc.getInitParameter(CONTEXT_ID_PARAM);
-   			if (idParam != null) {
-   				wac.setId(idParam);
-   			}
-   			else {
-   				// Generate default id...
-   				wac.setId(ConfigurableWebApplicationContext.APPLICATION_CONTEXT_ID_PREFIX +
-   						ObjectUtils.getDisplayString(sc.getContextPath()));
-   			}
-   		}
-   
-        //2. 设置servletContext到可配置上下文中
-   		wac.setServletContext(sc);
-   		String configLocationParam = sc.getInitParameter(CONFIG_LOCATION_PARAM);  // 从上下文中获取配置参数, 并设置到可配置上下文中 
-   		if (configLocationParam != null) {
-   			wac.setConfigLocation(configLocationParam);
-   		}
-   
-   		// The wac environment's #initPropertySources will be called in any case when the context
-   		// is refreshed; do it eagerly here to ensure servlet property sources are in place for
-   		// use in any post-processing or initialization that occurs below prior to #refresh
-   		ConfigurableEnvironment env = wac.getEnvironment();
-   		if (env instanceof ConfigurableWebEnvironment) {
-   			((ConfigurableWebEnvironment) env).initPropertySources(sc, null);   // 初始化属性  (environment) 
-   		}
-   
-   		customizeContext(sc, wac);   // 自定义上下文 
-   		wac.refresh();  // 刷新, 原来是启动web应用之后, 初始上下文,  然后调用这个刷新  (可配置上下文才可以刷新)  
-   	}
-   ``` 
-   
-   
-   // ========================================  
-   // 关闭web应用上下文  
-   ##### 2.2) 关闭上下文的步骤
-   ```
-   public void closeWebApplicationContext(ServletContext servletContext) {
-   		servletContext.log("Closing Spring root WebApplicationContext");
-   		try {
-   			if (this.context instanceof ConfigurableWebApplicationContext) {
-   				((ConfigurableWebApplicationContext) this.context).close();
-   			}
-   		}
-   		finally {
-   			ClassLoader ccl = Thread.currentThread().getContextClassLoader();
-   			if (ccl == ContextLoader.class.getClassLoader()) {
-   				currentContext = null;
-   			}
-   			else if (ccl != null) {
-   				currentContextPerThread.remove(ccl);
-   			}
-   			servletContext.removeAttribute(WebApplicationContext.ROOT_WEB_APPLICATION_CONTEXT_ATTRIBUTE);
-   			if (this.parentContextRef != null) {
-   				this.parentContextRef.release();
-   			}
-   		}
-   	}
-   ```
-   
-   // ========================= 
-   // protected Class<?> determineContextClass(ServletContext servletContext) {
-   // String contextClassName = servletContext.getInitParameter(CONTEXT_CLASS_PARAM);
-   // 默认加载的上下文类  ContextLoader.properties
-   ```
-   org.springframework.web.context.WebApplicationContext=org.springframework.web.context.support.XmlWebApplicationContext
-   ```
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
-   
+      ```
+      protected void configureAndRefreshWebApplicationContext(ConfigurableWebApplicationContext wac, ServletContext sc) {
+           //1. 上下文id
+      		if (ObjectUtils.identityToString(wac).equals(wac.getId())) {
+      			// The application context id is still set to its original default value
+      			// -> assign a more useful id based on available information
+      			String idParam = sc.getInitParameter(CONTEXT_ID_PARAM);
+      			if (idParam != null) {
+      				wac.setId(idParam);
+      			}
+      			else {
+      				// Generate default id...
+      				wac.setId(ConfigurableWebApplicationContext.APPLICATION_CONTEXT_ID_PREFIX +
+      						ObjectUtils.getDisplayString(sc.getContextPath()));
+      			}
+      		}
+      
+           //2. 设置servletContext到可配置上下文中
+      		wac.setServletContext(sc);
+      		String configLocationParam = sc.getInitParameter(CONFIG_LOCATION_PARAM);  // 从上下文中获取配置参数, 并设置到可配置上下文中 
+      		if (configLocationParam != null) {
+      			wac.setConfigLocation(configLocationParam);
+      		}
+      
+      		// The wac environment's #initPropertySources will be called in any case when the context
+      		// is refreshed; do it eagerly here to ensure servlet property sources are in place for
+      		// use in any post-processing or initialization that occurs below prior to #refresh
+      		ConfigurableEnvironment env = wac.getEnvironment();
+      		if (env instanceof ConfigurableWebEnvironment) {
+      			((ConfigurableWebEnvironment) env).initPropertySources(sc, null);   // 初始化属性  (environment) 
+      		}
+      
+      		customizeContext(sc, wac);   // 自定义上下文 
+      		wac.refresh();  // 刷新, 原来是启动web应用之后, 初始上下文,  然后调用这个刷新  (可配置上下文才可以刷新)  
+      	}
+      ``` 
+      
+      
+      // ========================================  
+      // 关闭web应用上下文  
+   ##### 3.2) 关闭上下文的步骤
+      ```
+      public void closeWebApplicationContext(ServletContext servletContext) {
+      		servletContext.log("Closing Spring root WebApplicationContext");
+      		try {
+      			if (this.context instanceof ConfigurableWebApplicationContext) {
+      				((ConfigurableWebApplicationContext) this.context).close();
+      			}
+      		}
+      		finally {
+      			ClassLoader ccl = Thread.currentThread().getContextClassLoader();
+      			if (ccl == ContextLoader.class.getClassLoader()) {
+      				currentContext = null;
+      			}
+      			else if (ccl != null) {
+      				currentContextPerThread.remove(ccl);
+      			}
+      			servletContext.removeAttribute(WebApplicationContext.ROOT_WEB_APPLICATION_CONTEXT_ATTRIBUTE);
+      			if (this.parentContextRef != null) {
+      				this.parentContextRef.release();
+      			}
+      		}
+      	}
+      ```
+      
+      // ========================= 
+      // protected Class<?> determineContextClass(ServletContext servletContext) {
+      // String contextClassName = servletContext.getInitParameter(CONTEXT_CLASS_PARAM);
+      // 默认加载的上下文类  ContextLoader.properties
+      ```
+      org.springframework.web.context.WebApplicationContext=org.springframework.web.context.support.XmlWebApplicationContext
+      ```
+      
+      
    
    
     
