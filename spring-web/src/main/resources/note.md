@@ -48,6 +48,49 @@
    
 #### 2. root 上下文的初始化
    
+   org.springframework.web.context.ContextLoaderListener  实现了 ServletContextListener,  该接口有以下两个方法:
+   
+   ```
+      /**
+       * 
+       * 收到web应用初始化进程开始的通知
+       * 所有ServletContextListeners将会在filter或者servlet初始化之前被通知
+       *
+       */
+      public void contextInitialized(ServletContextEvent event), 
+      /**
+       * 收到ServletContext将要关闭的通知
+       * 所有servlet或者filter将会在servletContext被通知之前被销毁
+       */
+      public void contextDestroyed(ServletContextEvent event); 
+   ```
+   
+   
+   ContextLoaderListener继承于ContextLoader, 上面两个方法将委托于父类的方法完成。 
+   ```
+   /**
+   	 * Initialize the root web application context.
+   	 */
+   	@Override
+   	public void contextInitialized(ServletContextEvent event) {
+   		initWebApplicationContext(event.getServletContext());
+   	}
+   
+   
+   	/**
+   	 * Close the root web application context.
+   	 */
+   	@Override
+   	public void contextDestroyed(ServletContextEvent event) {
+   		closeWebApplicationContext(event.getServletContext());
+   		ContextCleanupListener.cleanupAttributes(event.getServletContext());
+   	}
+   ```
+   
+
+#### 3. ContextLoader的初始化过程     
+   
+   
     
     
 
