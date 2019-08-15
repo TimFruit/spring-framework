@@ -127,7 +127,7 @@
    				WebApplicationContextUtils.getWebApplicationContext(getServletContext());
    		WebApplicationContext wac = null;
    
-        // 4种方法初始化servlet上下文
+        // 4种方法初始化servlet上下文 ==》 通过反射创建上下文实例， 然后设置Environment,configLocation等参数， 最后触发刷新
    		if (this.webApplicationContext != null) {  // (1) 上下文被注入
    			// A context instance was injected at construction time -> use it
    			wac = this.webApplicationContext;
@@ -141,7 +141,7 @@
    						// the root application context (if any; may be null) as the parent
    						cwac.setParent(rootContext);
    					}
-   					configureAndRefreshWebApplicationContext(cwac);
+   					configureAndRefreshWebApplicationContext(cwac); // 配置刷新
    				}
    			}
    		}
@@ -177,4 +177,9 @@
    		return wac;
    	}
    ```
+    
+    
+    
+    
+    
     
