@@ -23,6 +23,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.util.PathMatcher;
 import org.springframework.util.StringUtils;
 import org.springframework.web.accept.ContentNegotiationManager;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.servlet.mvc.condition.ConsumesRequestCondition;
 import org.springframework.web.servlet.mvc.condition.HeadersRequestCondition;
@@ -45,6 +46,11 @@ import org.springframework.web.util.UrlPathHelper;
  * <li>{@link ProducesRequestCondition}
  * <li>{@code RequestCondition} (optional, custom request condition)
  * </ol>
+ *
+ * // 用于封装注解@RequestMapping对应的值
+ * // 如@RequestMapping(path="/home", methods={RequestMethod.POST}
+ * @see org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping#createRequestMappingInfo(RequestMapping, RequestCondition)
+ * @see RequestMapping
  *
  * @author Arjen Poutsma
  * @author Rossen Stoyanchev

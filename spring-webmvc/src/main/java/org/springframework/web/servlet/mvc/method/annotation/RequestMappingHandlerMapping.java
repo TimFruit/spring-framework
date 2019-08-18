@@ -248,6 +248,8 @@ public class RequestMappingHandlerMapping extends RequestMappingInfoHandlerMappi
 	protected RequestMappingInfo createRequestMappingInfo(
 			RequestMapping requestMapping, RequestCondition<?> customCondition) {
 
+		// 创建了RequestMappingInfo实例, 里面对应了注解@RequestMapping对应的值
+		// 如@RequestMapping(path="/home", methods={RequestMethod.POST}
 		return RequestMappingInfo
 				.paths(resolveEmbeddedValuesInPatterns(requestMapping.path()))
 				.methods(requestMapping.method())

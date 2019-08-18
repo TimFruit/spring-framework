@@ -26,7 +26,8 @@
    AbstractHandlerMethodMapping<T>  implements InitializingBean                                       AbstractUrlHandlerMapping           
              ^         
             | |  <T> 该泛型, 包含了request和handlerMethod匹配的条件              
-            | |  属性, MappingRegistry mappingRegistry,  HandlerMethodMappingNamingStrategy<T> namingStrategy; 
+            | |  属性, MappingRegistry mappingRegistry,  
+            | |        HandlerMethodMappingNamingStrategy<T> namingStrategy; 
             | |  实现handlerMethod=getHandlerInternal(request)                      
             | |  主要作用是将request和HandlerMethod映射起来, 映射关系存放于handlerMapping中             
             | |  实现afterPropertiesSet()方法,初始化对应的handlerMethod        
@@ -37,11 +38,14 @@
             | |  getMatchingMapping(RequestMappingInfo info, HttpServletRequest request),             
             | |  getMappingComparator(final HttpServletRequest request)                                     
             | |                 
-   RequestMappingHandlerMapping       
+   RequestMappingHandlerMapping implements MatchableHandlerMapping, EmbeddedValueResolverAware               
              ^       
             | |   实例用于@RequestMapping和@Controller             
-            | |       
-            | |           
+            | |   重写RequestMappingInfo getMappingForMethod(Method method, Class<?> handlerType)
+            | |   创建适用于@RequestMapping的RquestMappingInfo实例    
+            | |   RequestMappingInfo createRequestMappingInfo(RequestMapping requestMapping,          
+            | |         RequestCondition<?> customCondition)          
+                  			        
    
    
    
