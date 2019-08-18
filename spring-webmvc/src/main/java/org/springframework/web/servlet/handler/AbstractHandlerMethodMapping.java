@@ -210,8 +210,8 @@ public abstract class AbstractHandlerMethodMapping<T> extends AbstractHandlerMap
 						logger.debug("Could not resolve target class for bean with name '" + beanName + "'", ex);
 					}
 				}
-				if (beanType != null && isHandler(beanType)) {
-					detectHandlerMethods(beanName);
+				if (beanType != null && isHandler(beanType)) {  // 判断是不是处理器
+					detectHandlerMethods(beanName);  // 如果是处理器, 则搜索处理器中的方法
 				}
 			}
 		}
