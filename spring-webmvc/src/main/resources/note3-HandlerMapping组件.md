@@ -236,6 +236,10 @@
 ##### 3. AbstractHandlerMethodMapping<T>  extends AbstractHandlerMapping implements InitializingBean      
    
    
+   主要封装了request和HandlerMethod的映射关系, 封装在MappingRegistry注册表中
+   其中T为对应的映射条件, 如RequestMappingInfo, 它用于封装注解@RequestMapping()中的值
+   
+   
    ###### 3.1) 属性   
    ```
    private boolean detectHandlerMethodsInAncestorContexts = false;
@@ -616,7 +620,204 @@
    	private HandlerMethod resolvedFromHandlerMethod;
    ```
    
+##### 4. RequestMappingInfoHandlerMapping extends AbstractHandlerMethodMapping<RequestMappingInfo> 
+
+   本类主要处理映射条件信息封装类型为RequestMappingInfo的映射处理    
    
+   
+   ###### 4.1) 实现AbstractHandlerMethodMapping中的方法 
+   ``` 
+   /**
+   	 * Get the URL path patterns associated with this {@link RequestMappingInfo}.
+   	 */
+   	@Override
+   	protected Set<String> getMappingPathPatterns(RequestMappingInfo info) {
+   		return info.getPatternsCondition().getPatterns();
+   	}
+   
+   	/**
+   	 * Check if the given RequestMappingInfo matches the current request and
+   	 * return a (potentially new) instance with conditions that match the
+   	 * current request -- for example with a subset of URL patterns.
+   	 * @return an info in case of a match; or {@code null} otherwise.
+   	 */
+   	@Override
+   	protected RequestMappingInfo getMatchingMapping(RequestMappingInfo info, HttpServletRequest request) {
+   		return info.getMatchingCondition(request);
+   	}
+   
+   	/**
+   	 * Provide a Comparator to sort RequestMappingInfos matched to a request.
+   	 */
+   	@Override
+   	protected Comparator<RequestMappingInfo> getMappingComparator(final HttpServletRequest request) {
+   		return new Comparator<RequestMappingInfo>() {
+   			@Override
+   			public int compare(RequestMappingInfo info1, RequestMappingInfo info2) {
+   				return info1.compareTo(info2, request);
+   			}
+   		};
+   	}
+   ```
+
+
+   ###### 4.2) 重写AbstractHandlerMethodMapping中的方法    
+   ```
+   /**
+   	 * Expose URI template variables, matrix variables, and producible media types in the request.
+   	 * @see HandlerMapping#URI_TEMPLATE_VARIABLES_ATTRIBUTE
+   	 * @see HandlerMapping#MATRIX_VARIABLES_ATTRIBUTE
+   	 * @see HandlerMapping#PRODUCIBLE_MEDIA_TYPES_ATTRIBUTE
+   	 */
+   	@Override
+   	protected void handleMatch(RequestMappingInfo info, String lookupPath, HttpServletRequest request) {
+   		super.handleMatch(info, lookupPath, request);
+   
+   		String bestPattern;
+   		Map<String, String> uriVariables;
+   		Map<String, String> decodedUriVariables;
+   
+   		Set<String> patterns = info.getPatternsCondition().getPatterns();
+   		if (patterns.isEmpty()) {
+   			bestPattern = lookupPath;
+   			uriVariables = Collections.emptyMap();
+   			decodedUriVariables = Collections.emptyMap();
+   		}
+   		else {
+   			bestPattern = patterns.iterator().next();
+   			uriVariables = getPathMatcher().extractUriTemplateVariables(bestPattern, lookupPath);
+   			decodedUriVariables = getUrlPathHelper().decodePathVariables(request, uriVariables);
+   		}
+   
+   		request.setAttribute(BEST_MATCHING_PATTERN_ATTRIBUTE, bestPattern);
+   		request.setAttribute(HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE, decodedUriVariables);
+   
+   		if (isMatrixVariableContentAvailable()) {
+   			Map<String, MultiValueMap<String, String>> matrixVars = extractMatrixVariables(request, uriVariables);
+   			request.setAttribute(HandlerMapping.MATRIX_VARIABLES_ATTRIBUTE, matrixVars);
+   		}
+   
+   		if (!info.getProducesCondition().getProducibleMediaTypes().isEmpty()) {
+   			Set<MediaType> mediaTypes = info.getProducesCondition().getProducibleMediaTypes();
+   			request.setAttribute(PRODUCIBLE_MEDIA_TYPES_ATTRIBUTE, mediaTypes);
+   		}
+   	}
+   
+   	private boolean isMatrixVariableContentAvailable() {
+   		return !getUrlPathHelper().shouldRemoveSemicolonContent();
+   	}
+   
+   	private Map<String, MultiValueMap<String, String>> extractMatrixVariables(
+   			HttpServletRequest request, Map<String, String> uriVariables) {
+   
+   		Map<String, MultiValueMap<String, String>> result = new LinkedHashMap<String, MultiValueMap<String, String>>();
+   		for (Map.Entry<String, String> uriVar : uriVariables.entrySet()) {
+   			String uriVarValue = uriVar.getValue();
+   
+   			int equalsIndex = uriVarValue.indexOf('=');
+   			if (equalsIndex == -1) {
+   				continue;
+   			}
+   
+   			String matrixVariables;
+   
+   			int semicolonIndex = uriVarValue.indexOf(';');
+   			if ((semicolonIndex == -1) || (semicolonIndex == 0) || (equalsIndex < semicolonIndex)) {
+   				matrixVariables = uriVarValue;
+   			}
+   			else {
+   				matrixVariables = uriVarValue.substring(semicolonIndex + 1);
+   				uriVariables.put(uriVar.getKey(), uriVarValue.substring(0, semicolonIndex));
+   			}
+   
+   			MultiValueMap<String, String> vars = WebUtils.parseMatrixVariables(matrixVariables);
+   			result.put(uriVar.getKey(), getUrlPathHelper().decodeMatrixVariables(request, vars));
+   		}
+   		return result;
+   	}
+   
+   	/**
+   	 * Iterate all RequestMappingInfo's once again, look if any match by URL at
+   	 * least and raise exceptions according to what doesn't match.
+   	 * @throws HttpRequestMethodNotSupportedException if there are matches by URL
+   	 * but not by HTTP method
+   	 * @throws HttpMediaTypeNotAcceptableException if there are matches by URL
+   	 * but not by consumable/producible media types
+   	 */
+   	@Override
+   	protected HandlerMethod handleNoMatch(
+   			Set<RequestMappingInfo> infos, String lookupPath, HttpServletRequest request) throws ServletException {
+   
+   		PartialMatchHelper helper = new PartialMatchHelper(infos, request);
+   		if (helper.isEmpty()) {
+   			return null;
+   		}
+   
+   		if (helper.hasMethodsMismatch()) {
+   			Set<String> methods = helper.getAllowedMethods();
+   			if (HttpMethod.OPTIONS.matches(request.getMethod())) {
+   				HttpOptionsHandler handler = new HttpOptionsHandler(methods);
+   				return new HandlerMethod(handler, HTTP_OPTIONS_HANDLE_METHOD);
+   			}
+   			throw new HttpRequestMethodNotSupportedException(request.getMethod(), methods);
+   		}
+   
+   		if (helper.hasConsumesMismatch()) {
+   			Set<MediaType> mediaTypes = helper.getConsumableMediaTypes();
+   			MediaType contentType = null;
+   			if (StringUtils.hasLength(request.getContentType())) {
+   				try {
+   					contentType = MediaType.parseMediaType(request.getContentType());
+   				}
+   				catch (InvalidMediaTypeException ex) {
+   					throw new HttpMediaTypeNotSupportedException(ex.getMessage());
+   				}
+   			}
+   			throw new HttpMediaTypeNotSupportedException(contentType, new ArrayList<MediaType>(mediaTypes));
+   		}
+   
+   		if (helper.hasProducesMismatch()) {
+   			Set<MediaType> mediaTypes = helper.getProducibleMediaTypes();
+   			throw new HttpMediaTypeNotAcceptableException(new ArrayList<MediaType>(mediaTypes));
+   		}
+   
+   		if (helper.hasParamsMismatch()) {
+   			List<String[]> conditions = helper.getParamConditions();
+   			throw new UnsatisfiedServletRequestParameterException(conditions, request.getParameterMap());
+   		}
+   
+   		return null;
+   	}
+   ```
+
+   ###### 4.3) RequestMappingInfo implements RequestCondition<RequestMappingInfo>  
+   // 用于封装注解@RequestMapping对应的值      
+    * // 如@RequestMapping(path="/home", methods={RequestMethod.POST}      
+    * @see org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping#createRequestMappingInfo(RequestMapping, RequestCondition)
+    * @see RequestMapping
+     
+   ```
+    private final String name;
+   
+   	private final PatternsRequestCondition patternsCondition;
+   
+   	private final RequestMethodsRequestCondition methodsCondition;
+   
+   	private final ParamsRequestCondition paramsCondition;
+   
+   	private final HeadersRequestCondition headersCondition;
+   
+   	private final ConsumesRequestCondition consumesCondition;
+   
+   	private final ProducesRequestCondition producesCondition;
+   
+   	private final RequestConditionHolder customConditionHolder;
+   ```
+   
+   
+   
+
+    
      
    
    
