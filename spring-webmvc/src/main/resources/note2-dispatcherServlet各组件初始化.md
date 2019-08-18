@@ -4,6 +4,26 @@
 
 #### dispatcherServlet各组件的初始化及调用过程
 
+```
+   /**
+   	 * Initialize the strategy objects that this servlet uses.
+   	 * <p>May be overridden in subclasses in order to initialize further strategy objects.
+   	 */
+   	protected void initStrategies(ApplicationContext context) { //初始化9大组件
+   		initMultipartResolver(context);
+   		initLocaleResolver(context);
+   		initThemeResolver(context);
+   		initHandlerMappings(context);
+   		initHandlerAdapters(context);
+   		initHandlerExceptionResolvers(context);
+   		initRequestToViewNameTranslator(context);
+   		initViewResolvers(context);
+   		initFlashMapManager(context);
+   	}
+   ```
+
+以下主要组件的初始化及调用过程
+
 ##### 1. handleMapping 
   
   
