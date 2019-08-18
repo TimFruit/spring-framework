@@ -263,18 +263,23 @@
    			Exception dispatchException = null;
    
    			try {
+   			    //解析多部分请求 ， （一般是上传文件）
    				processedRequest = checkMultipart(request);
-   				multipartRequestParsed = (processedRequest != request);  //解析多部分请求 ， （一般是上传文件）
+   				multipartRequestParsed = (processedRequest != request);  
    
+                // 根据请求， 获取请求对应(映射)的mappedHandler 
+                // mappedHandler封装了拦截器链
    				// Determine handler for the current request.
-   				mappedHandler = getHandler(processedRequest);   // 根据请求， 获取请求对应(映射)的mappedHandler // mappedHandler封装了拦截器链
+   				mappedHandler = getHandler(processedRequest);   
    				if (mappedHandler == null || mappedHandler.getHandler() == null) {
    					noHandlerFound(processedRequest, response);
    					return;
    				}
    
+                // 获取对应的HandleAdpater, HandleAdpater对mappedHandler做了适配， 
+                // 它用于适配不同类型的处理器，（可以是其他框架的处理器）， 然后调用执行对应的处理器，统一封装返回值ModelAndView
    				// Determine handler adapter for the current request.
-   				HandlerAdapter ha = getHandlerAdapter(mappedHandler.getHandler()); // 获取对应的HandleAdpater, HandleAdpater对mappedHandler做了适配， 它用于适配不同类型的处理器，（可以是其他框架的处理器）， 然后调用执行对应的处理器，统一封装返回值ModelAndView
+   				HandlerAdapter ha = getHandlerAdapter(mappedHandler.getHandler()); 
    
    				// Process last-modified header, if supported by the handler.
    				String method = request.getMethod();
@@ -293,6 +298,7 @@
    					return;
    				}
    
+                // 真正调用handlerAdapter处理结果
    				// Actually invoke the handler.
    				mv = ha.handle(processedRequest, response, mappedHandler.getHandler());  // 通过handleAdapter处理请求
    
@@ -311,6 +317,9 @@
    				// making them available for @ExceptionHandler methods and other scenarios.
    				dispatchException = new NestedServletException("Handler dispatch failed", err);
    			}
+   			
+   			// 处理结果 ModelAndView, 如果结果是异常, 则封装异常,
+   		    // 将ModleAndView转换成View, 最后由View渲染输出到response 
    			processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);  // 处理输出返回值给请求方
    		}
    		catch (Exception ex) {
@@ -337,3 +346,113 @@
    	}
    ```
     
+  
+  DispatcherServlet#processDispatchResult()  
+  ```
+  /**
+  	 * Handle the result of handler selection and handler invocation, which is
+  	 * either a ModelAndView or an Exception to be resolved to a ModelAndView.
+  	 */
+  	private void processDispatchResult(HttpServletRequest request, HttpServletResponse response,
+  			HandlerExecutionChain mappedHandler, ModelAndView mv, Exception exception) throws Exception {
+  
+  		boolean errorView = false;
+  
+  		// 将异常处理成ModelAndView
+  		if (exception != null) {
+  			if (exception instanceof ModelAndViewDefiningException) {
+  				logger.debug("ModelAndViewDefiningException encountered", exception);
+  				mv = ((ModelAndViewDefiningException) exception).getModelAndView();
+  			}
+  			else {
+  				Object handler = (mappedHandler != null ? mappedHandler.getHandler() : null);
+  				mv = processHandlerException(request, response, handler, exception);
+  				errorView = (mv != null);
+  			}
+  		}
+  
+  		// Did the handler return a view to render?
+  		if (mv != null && !mv.wasCleared()) {
+  
+  			// 这里渲染视图
+  			render(mv, request, response);
+  			if (errorView) {
+  				WebUtils.clearErrorRequestAttributes(request);
+  			}
+  		}
+  		else {
+  			if (logger.isDebugEnabled()) {
+  				logger.debug("Null ModelAndView returned to DispatcherServlet with name '" + getServletName() +
+  						"': assuming HandlerAdapter completed request handling");
+  			}
+  		}
+  
+  		if (WebAsyncUtils.getAsyncManager(request).isConcurrentHandlingStarted()) {
+  			// Concurrent handling started during a forward
+  			return;
+  		}
+  
+  		// 触发afterCompletion
+  		if (mappedHandler != null) {
+  			mappedHandler.triggerAfterCompletion(request, response, null);
+  		}
+  	}
+  ```
+  
+  DispatcherServlet#render()  
+  ```
+  /**
+  	 * Render the given ModelAndView.
+  	 * <p>This is the last stage in handling a request. It may involve resolving the view by name.
+  	 * @param mv the ModelAndView to render
+  	 * @param request current HTTP servlet request
+  	 * @param response current HTTP servlet response
+  	 * @throws ServletException if view is missing or cannot be resolved
+  	 * @throws Exception if there's a problem rendering the view
+  	 */
+  	protected void render(ModelAndView mv, HttpServletRequest request, HttpServletResponse response) throws Exception {
+  		// Determine locale for request and apply it to the response.
+  		Locale locale = this.localeResolver.resolveLocale(request);
+  		response.setLocale(locale);
+  
+  
+  		// 解析视图 View
+  		View view;
+  		if (mv.isReference()) {
+  
+  			// We need to resolve the view name.
+  			view = resolveViewName(mv.getViewName(), mv.getModelInternal(), locale, request);
+  			if (view == null) {
+  				throw new ServletException("Could not resolve view with name '" + mv.getViewName() +
+  						"' in servlet with name '" + getServletName() + "'");
+  			}
+  		}
+  		else {
+  			// No need to lookup: the ModelAndView object contains the actual View object.
+  			view = mv.getView();
+  			if (view == null) {
+  				throw new ServletException("ModelAndView [" + mv + "] neither contains a view name nor a " +
+  						"View object in servlet with name '" + getServletName() + "'");
+  			}
+  		}
+  
+  		// 委派View对象去呈现视图到response响应
+  		// Delegate to the View object for rendering.
+  		if (logger.isDebugEnabled()) {
+  			logger.debug("Rendering view [" + view + "] in DispatcherServlet with name '" + getServletName() + "'");
+  		}
+  		try {
+  			if (mv.getStatus() != null) {
+  				response.setStatus(mv.getStatus().value());
+  			}
+  			view.render(mv.getModelInternal(), request, response);
+  		}
+  		catch (Exception ex) {
+  			if (logger.isDebugEnabled()) {
+  				logger.debug("Error rendering view [" + view + "] in DispatcherServlet with name '" +
+  						getServletName() + "'", ex);
+  			}
+  			throw ex;
+  		}
+  	}
+  ```
