@@ -324,6 +324,7 @@ public class DispatcherServlet extends FrameworkServlet {
 	private List<HandlerExceptionResolver> handlerExceptionResolvers;
 
 	/** RequestToViewNameTranslator used by this servlet */
+	// 转换成默认的ViewName
 	private RequestToViewNameTranslator viewNameTranslator;
 
 	/** FlashMapManager used by this servlet */

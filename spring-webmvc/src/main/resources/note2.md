@@ -254,59 +254,144 @@
 
 
 
-##### 3. xxx
+##### 4. RequestToViewNameTranslator
 
-   ###### 3.1) xxx属性 
-   ###### 3.2) 初始化 
-   ###### 3.3) doDispatch()中获取xxx  
+   ###### 4.1) RequestToViewNameTranslator属性 
+   ```
+   /** RequestToViewNameTranslator used by this servlet */
+   	private RequestToViewNameTranslator viewNameTranslator;
+   ```
+   ###### 4.2) 初始化 
    ```
    /**
-   	 * Resolve the given view name into a View object (to be rendered).
-   	 * <p>The default implementations asks all ViewResolvers of this dispatcher.
-   	 * Can be overridden for custom resolution strategies, potentially based on
-   	 * specific model attributes or request parameters.
-   	 * @param viewName the name of the view to resolve
-   	 * @param model the model to be passed to the view
-   	 * @param locale the current locale
-   	 * @param request current HTTP servlet request
-   	 * @return the View object, or {@code null} if none found
-   	 * @throws Exception if the view cannot be resolved
-   	 * (typically in case of problems creating an actual View object)
-   	 * @see ViewResolver#resolveViewName
+   	 * Initialize the RequestToViewNameTranslator used by this servlet instance.
+   	 * <p>If no implementation is configured then we default to DefaultRequestToViewNameTranslator.
    	 */
-   	protected View resolveViewName(String viewName, Map<String, Object> model, Locale locale,
-   			HttpServletRequest request) throws Exception {
-   
-   		for (ViewResolver viewResolver : this.viewResolvers) {
-   			View view = viewResolver.resolveViewName(viewName, locale);
-   			if (view != null) {
-   				return view;
+   	private void initRequestToViewNameTranslator(ApplicationContext context) {
+   		try {
+   		    // 从上下文中根据beanName获取
+   			this.viewNameTranslator =
+   					context.getBean(REQUEST_TO_VIEW_NAME_TRANSLATOR_BEAN_NAME, RequestToViewNameTranslator.class);
+   			if (logger.isDebugEnabled()) {
+   				logger.debug("Using RequestToViewNameTranslator [" + this.viewNameTranslator + "]");
    			}
    		}
-   		return null;
+   		catch (NoSuchBeanDefinitionException ex) {
+   			// We need to use the default.
+   			this.viewNameTranslator = getDefaultStrategy(context, RequestToViewNameTranslator.class);
+   			if (logger.isDebugEnabled()) {
+   				logger.debug("Unable to locate RequestToViewNameTranslator with name '" +
+   						REQUEST_TO_VIEW_NAME_TRANSLATOR_BEAN_NAME + "': using default [" + this.viewNameTranslator +
+   						"]");
+   			}
+   		}
+   	}
+   ```
+   ###### 4.3) doDispatch()中用于请求转换成默认的viewName
+   ```
+   /**
+   	 * Do we need view name translation?
+   	 */
+   	private void applyDefaultViewName(HttpServletRequest request, ModelAndView mv) throws Exception {
+   		if (mv != null && !mv.hasView()) {
+   			mv.setViewName(getDefaultViewName(request));
+   		}
+   	}
+   ```
+   ```
+   /**
+   	 * Translate the supplied request into a default view name.
+   	 * @param request current HTTP servlet request
+   	 * @return the view name (or {@code null} if no default found)
+   	 * @throws Exception if view name translation failed
+   	 */
+   	protected String getDefaultViewName(HttpServletRequest request) throws Exception {
+   		return this.viewNameTranslator.getViewName(request);
    	}
    ```
    
+   
 
-##### 3. xxx
+##### 5. ViewResolver
 
-   ###### 3.1) xxx属性 
-   ###### 3.2) 初始化 
-   ###### 3.3) doDispatch()中获取xxx
+   ###### 5.1) ViewResolver属性 
+   ```
+      /** List of ViewResolvers used by this servlet */
+      private List<ViewResolver> viewResolvers;
+  ```
+   ###### 5.2) 初始化 
+   ```
+   /**
+   	 * Initialize the ViewResolvers used by this class.
+   	 * <p>If no ViewResolver beans are defined in the BeanFactory for this
+   	 * namespace, we default to InternalResourceViewResolver.
+   	 */
+   	private void initViewResolvers(ApplicationContext context) {
+   		this.viewResolvers = null;
+   
+   		if (this.detectAllViewResolvers) {
+   			// Find all ViewResolvers in the ApplicationContext, including ancestor contexts.
+   			Map<String, ViewResolver> matchingBeans =
+   					BeanFactoryUtils.beansOfTypeIncludingAncestors(context, ViewResolver.class, true, false);
+   			if (!matchingBeans.isEmpty()) {
+   				this.viewResolvers = new ArrayList<ViewResolver>(matchingBeans.values());
+   				// We keep ViewResolvers in sorted order.
+   				AnnotationAwareOrderComparator.sort(this.viewResolvers);
+   			}
+   		}
+   		else {
+   			try {
+   				ViewResolver vr = context.getBean(VIEW_RESOLVER_BEAN_NAME, ViewResolver.class);
+   				this.viewResolvers = Collections.singletonList(vr);
+   			}
+   			catch (NoSuchBeanDefinitionException ex) {
+   				// Ignore, we'll add a default ViewResolver later.
+   			}
+   		}
+   
+   		// Ensure we have at least one ViewResolver, by registering
+   		// a default ViewResolver if no other resolvers are found.
+   		if (this.viewResolvers == null) {
+   			this.viewResolvers = getDefaultStrategies(context, ViewResolver.class);
+   			if (logger.isDebugEnabled()) {
+   				logger.debug("No ViewResolvers found in servlet '" + getServletName() + "': using default");
+   			}
+   		}
+   	}
+   ```
+   
+   ###### 5.3) resolveViewName()中使用viewResolver解析View
+   ```
+  /**
+     * Resolve the given view name into a View object (to be rendered).
+     * <p>The default implementations asks all ViewResolvers of this dispatcher.
+     * Can be overridden for custom resolution strategies, potentially based on
+     * specific model attributes or request parameters.
+     * @param viewName the name of the view to resolve
+     * @param model the model to be passed to the view
+     * @param locale the current locale
+     * @param request current HTTP servlet request
+     * @return the View object, or {@code null} if none found
+     * @throws Exception if the view cannot be resolved
+     * (typically in case of problems creating an actual View object)
+     * @see ViewResolver#resolveViewName
+     */
+    protected View resolveViewName(String viewName, Map<String, Object> model, Locale locale,
+            HttpServletRequest request) throws Exception {
+  
+        for (ViewResolver viewResolver : this.viewResolvers) {
+            // 根据名字解析获取view
+            View view = viewResolver.resolveViewName(viewName, locale);
+            if (view != null) {
+                return view;
+            }
+        }
+        return null;
+    }
+  ```
    
    
-   
-#TODO
-```
-    /** List of HandlerExceptionResolvers used by this servlet */
-	private List<HandlerExceptionResolver> handlerExceptionResolvers;
 
-	/** RequestToViewNameTranslator used by this servlet */
-	private RequestToViewNameTranslator viewNameTranslator;
-	
-	/** List of ViewResolvers used by this servlet */
-    private List<ViewResolver> viewResolvers;
-```   
    
    
    
