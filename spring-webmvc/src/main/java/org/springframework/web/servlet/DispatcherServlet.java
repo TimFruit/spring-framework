@@ -933,6 +933,9 @@ public class DispatcherServlet extends FrameworkServlet {
 			Exception dispatchException = null;
 
 			try {
+
+				// 1. 处理请求
+
 				processedRequest = checkMultipart(request);
 				multipartRequestParsed = (processedRequest != request);
 
@@ -963,6 +966,8 @@ public class DispatcherServlet extends FrameworkServlet {
 					return;
 				}
 
+
+				// 实际调用handler
 				// Actually invoke the handler.
 				mv = ha.handle(processedRequest, response, mappedHandler.getHandler());
 
@@ -981,6 +986,13 @@ public class DispatcherServlet extends FrameworkServlet {
 				// making them available for @ExceptionHandler methods and other scenarios.
 				dispatchException = new NestedServletException("Handler dispatch failed", err);
 			}
+
+
+
+
+
+			// 2. 处理结果 ModelAndView or Exception
+
 			processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);
 		}
 		catch (Exception ex) {
@@ -1024,6 +1036,7 @@ public class DispatcherServlet extends FrameworkServlet {
 
 		boolean errorView = false;
 
+		// 将异常处理成ModelAndView
 		if (exception != null) {
 			if (exception instanceof ModelAndViewDefiningException) {
 				logger.debug("ModelAndViewDefiningException encountered", exception);
@@ -1038,6 +1051,8 @@ public class DispatcherServlet extends FrameworkServlet {
 
 		// Did the handler return a view to render?
 		if (mv != null && !mv.wasCleared()) {
+
+			// 这里渲染视图
 			render(mv, request, response);
 			if (errorView) {
 				WebUtils.clearErrorRequestAttributes(request);
@@ -1055,6 +1070,7 @@ public class DispatcherServlet extends FrameworkServlet {
 			return;
 		}
 
+		// 触发afterCompletion
 		if (mappedHandler != null) {
 			mappedHandler.triggerAfterCompletion(request, response, null);
 		}
@@ -1257,8 +1273,11 @@ public class DispatcherServlet extends FrameworkServlet {
 		Locale locale = this.localeResolver.resolveLocale(request);
 		response.setLocale(locale);
 
+
+		// 解析视图 View
 		View view;
 		if (mv.isReference()) {
+
 			// We need to resolve the view name.
 			view = resolveViewName(mv.getViewName(), mv.getModelInternal(), locale, request);
 			if (view == null) {
@@ -1275,6 +1294,7 @@ public class DispatcherServlet extends FrameworkServlet {
 			}
 		}
 
+		// 委派View对象去呈现视图到response响应
 		// Delegate to the View object for rendering.
 		if (logger.isDebugEnabled()) {
 			logger.debug("Rendering view [" + view + "] in DispatcherServlet with name '" + getServletName() + "'");
