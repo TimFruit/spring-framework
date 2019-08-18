@@ -419,7 +419,7 @@
   		// 解析视图 View
   		View view;
   		if (mv.isReference()) {
-  
+            // 使用viewRsolver根据视图名字解析视图View
   			// We need to resolve the view name.
   			view = resolveViewName(mv.getViewName(), mv.getModelInternal(), locale, request);
   			if (view == null) {
@@ -454,5 +454,34 @@
   			}
   			throw ex;
   		}
+  	}
+  ```
+  
+  DispatcherServlet#resolveViewName()
+  ```
+  /**
+  	 * Resolve the given view name into a View object (to be rendered).
+  	 * <p>The default implementations asks all ViewResolvers of this dispatcher.
+  	 * Can be overridden for custom resolution strategies, potentially based on
+  	 * specific model attributes or request parameters.
+  	 * @param viewName the name of the view to resolve
+  	 * @param model the model to be passed to the view
+  	 * @param locale the current locale
+  	 * @param request current HTTP servlet request
+  	 * @return the View object, or {@code null} if none found
+  	 * @throws Exception if the view cannot be resolved
+  	 * (typically in case of problems creating an actual View object)
+  	 * @see ViewResolver#resolveViewName
+  	 */
+  	protected View resolveViewName(String viewName, Map<String, Object> model, Locale locale,
+  			HttpServletRequest request) throws Exception {
+       // 循环调用ViewResolver, 根据视图名字,解析成View
+  		for (ViewResolver viewResolver : this.viewResolvers) {
+  			View view = viewResolver.resolveViewName(viewName, locale);
+  			if (view != null) {
+  				return view;
+  			}
+  		}
+  		return null;
   	}
   ```
