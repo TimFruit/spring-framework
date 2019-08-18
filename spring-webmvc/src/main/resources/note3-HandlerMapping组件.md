@@ -816,9 +816,130 @@
    
    
    
-
+##### 5. RequestMappingHandlerMapping extends RequestMappingInfoHandlerMapping implements MatchableHandlerMapping, EmbeddedValueResolverAware   
+   
+   主要用于创建@Controller标记的@RequestMapping对应的方法级别的RequestMappingInfo实例   
+   
+   ###### 5.1) 属性  
+   
+   ```
+   private ContentNegotiationManager contentNegotiationManager = new ContentNegotiationManager();
+   
+   	private StringValueResolver embeddedValueResolver;
+   
+   	private RequestMappingInfo.BuilderConfiguration config = new RequestMappingInfo.BuilderConfiguration();
+   ```
+   
+   ###### 5.2) 初始化 
+   ```
+   @Override
+   	public void afterPropertiesSet() {
+   	    // 先配置好, 在调用父类的初始化方法, 初始化HandlerMethod
+   		this.config = new RequestMappingInfo.BuilderConfiguration();
+   		this.config.setUrlPathHelper(getUrlPathHelper());
+   		this.config.setPathMatcher(getPathMatcher());
+   		this.config.setSuffixPatternMatch(this.useSuffixPatternMatch);
+   		this.config.setTrailingSlashMatch(this.useTrailingSlashMatch);
+   		this.config.setRegisteredSuffixPatternMatch(this.useRegisteredSuffixPatternMatch);
+   		this.config.setContentNegotiationManager(getContentNegotiationManager());
+   
+   		super.afterPropertiesSet();
+   	}
+   ```
+   
+  ###### 5.3) 实现父类方法
+  
+  AbstractHandlerMethodMapping#isHandler()  
+  ```
+  /**
+  	 * {@inheritDoc}
+  	 * <p>Expects a handler to have either a type-level @{@link Controller}
+  	 * annotation or a type-level @{@link RequestMapping} annotation.
+  	 */
+  	@Override
+  	protected boolean isHandler(Class<?> beanType) {
+  		return (AnnotatedElementUtils.hasAnnotation(beanType, Controller.class) ||
+  				AnnotatedElementUtils.hasAnnotation(beanType, RequestMapping.class));
+  	}
+  ```
+  
+  AbstractHandlerMethodMapping#getMappingForMethod()  
+  ```
+  /**
+  	 * Uses method and type-level @{@link RequestMapping} annotations to create
+  	 * the RequestMappingInfo.
+  	 * @return the created RequestMappingInfo, or {@code null} if the method
+  	 * does not have a {@code @RequestMapping} annotation.
+  	 * @see #getCustomMethodCondition(Method)
+  	 * @see #getCustomTypeCondition(Class)
+  	 */
+  	@Override
+  	protected RequestMappingInfo getMappingForMethod(Method method, Class<?> handlerType) {
+  		RequestMappingInfo info = createRequestMappingInfo(method);  // 创建RequestMappingInfo实例 
+  		if (info != null) {
+  			RequestMappingInfo typeInfo = createRequestMappingInfo(handlerType);
+  			if (typeInfo != null) {
+  				info = typeInfo.combine(info);
+  			}
+  		}
+  		return info;
+  	}
+  	
+  	
+  	/**
+     * Delegates to {@link #createRequestMappingInfo(RequestMapping, RequestCondition)},
+     * supplying the appropriate custom {@link RequestCondition} depending on whether
+     * the supplied {@code annotatedElement} is a class or method.
+     * @see #getCustomTypeCondition(Class)
+     * @see #getCustomMethodCondition(Method)
+     */
+    private RequestMappingInfo createRequestMappingInfo(AnnotatedElement element) {
+        RequestMapping requestMapping = AnnotatedElementUtils.findMergedAnnotation(element, RequestMapping.class);
+        RequestCondition<?> condition = (element instanceof Class ?
+                getCustomTypeCondition((Class<?>) element) : getCustomMethodCondition((Method) element));
+        return (requestMapping != null ? createRequestMappingInfo(requestMapping, condition) : null);
+    }
     
-     
+    /**
+     * Create a {@link RequestMappingInfo} from the supplied
+     * {@link RequestMapping @RequestMapping} annotation, which is either
+     * a directly declared annotation, a meta-annotation, or the synthesized
+     * result of merging annotation attributes within an annotation hierarchy.
+     */
+    protected RequestMappingInfo createRequestMappingInfo(
+            RequestMapping requestMapping, RequestCondition<?> customCondition) {
+
+        // 创建了RequestMappingInfo实例, 里面对应了注解@RequestMapping对应的值
+        // 如@RequestMapping(path="/home", methods={RequestMethod.POST}
+        return RequestMappingInfo
+                .paths(resolveEmbeddedValuesInPatterns(requestMapping.path()))
+                .methods(requestMapping.method())
+                .params(requestMapping.params())
+                .headers(requestMapping.headers())
+                .consumes(requestMapping.consumes())
+                .produces(requestMapping.produces())
+                .mappingName(requestMapping.name())
+                .customCondition(customCondition)
+                .options(this.config)
+                .build();
+    }
+  ```
+  
+    
+  MatchableHandlerMapping#match(HttpServletRequest request, String pattern)
+   ```
+   @Override
+   	public RequestMatchResult match(HttpServletRequest request, String pattern) {
+   		RequestMappingInfo info = RequestMappingInfo.paths(pattern).options(this.config).build();
+   		RequestMappingInfo matchingInfo = info.getMatchingCondition(request);
+   		if (matchingInfo == null) {
+   			return null;
+   		}
+   		Set<String> patterns = matchingInfo.getPatternsCondition().getPatterns();
+   		String lookupPath = getUrlPathHelper().getLookupPathForRequest(request);
+   		return new RequestMatchResult(patterns.iterator().next(), lookupPath, getPathMatcher());
+   	}
+   ```  
    
    
    

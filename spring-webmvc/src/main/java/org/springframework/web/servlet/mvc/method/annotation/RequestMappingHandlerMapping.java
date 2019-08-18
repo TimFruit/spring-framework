@@ -170,7 +170,7 @@ public class RequestMappingHandlerMapping extends RequestMappingInfoHandlerMappi
 	 * annotation or a type-level @{@link RequestMapping} annotation.
 	 */
 	@Override
-	protected boolean isHandler(Class<?> beanType) {
+	protected boolean isHandler(Class<?> beanType) { // 判断有@Controller或者@RequestMapping注解的类, 是处理器
 		return (AnnotatedElementUtils.hasAnnotation(beanType, Controller.class) ||
 				AnnotatedElementUtils.hasAnnotation(beanType, RequestMapping.class));
 	}
