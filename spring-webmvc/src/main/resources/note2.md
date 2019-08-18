@@ -158,11 +158,99 @@
    
    
    
-##### 3. xxx
+##### 3. HandlerExceptionResolver
 
-   ###### 3.1) xxx属性 
+   ###### 3.1) HandlerExceptionResolver属性 
+   ```
+   /** List of HandlerExceptionResolvers used by this servlet */
+   	private List<HandlerExceptionResolver> handlerExceptionResolvers;
+   ```
    ###### 3.2) 初始化 
-   ###### 3.3) doDispatch()中获取xxx
+   ```
+   /**
+   	 * Initialize the HandlerExceptionResolver used by this class.
+   	 * <p>If no bean is defined with the given name in the BeanFactory for this namespace,
+   	 * we default to no exception resolver.
+   	 */
+   	private void initHandlerExceptionResolvers(ApplicationContext context) {
+   		this.handlerExceptionResolvers = null;
+   
+   		if (this.detectAllHandlerExceptionResolvers) {
+   		    // 从上下文中查找 
+   			// Find all HandlerExceptionResolvers in the ApplicationContext, including ancestor contexts.
+   			Map<String, HandlerExceptionResolver> matchingBeans = BeanFactoryUtils
+   					.beansOfTypeIncludingAncestors(context, HandlerExceptionResolver.class, true, false);
+   			if (!matchingBeans.isEmpty()) {
+   				this.handlerExceptionResolvers = new ArrayList<HandlerExceptionResolver>(matchingBeans.values());
+   				// We keep HandlerExceptionResolvers in sorted order.
+   				AnnotationAwareOrderComparator.sort(this.handlerExceptionResolvers);
+   			}
+   		}
+   		else {
+   			try {
+   			    // 根据beanName获取
+   				HandlerExceptionResolver her =
+   						context.getBean(HANDLER_EXCEPTION_RESOLVER_BEAN_NAME, HandlerExceptionResolver.class);
+   				this.handlerExceptionResolvers = Collections.singletonList(her);
+   			}
+   			catch (NoSuchBeanDefinitionException ex) {
+   				// Ignore, no HandlerExceptionResolver is fine too.
+   			}
+   		}
+   
+        // 默认 
+   		// Ensure we have at least some HandlerExceptionResolvers, by registering
+   		// default HandlerExceptionResolvers if no other resolvers are found.
+   		if (this.handlerExceptionResolvers == null) {
+   			this.handlerExceptionResolvers = getDefaultStrategies(context, HandlerExceptionResolver.class);
+   			if (logger.isDebugEnabled()) {
+   				logger.debug("No HandlerExceptionResolvers found in servlet '" + getServletName() + "': using default");
+   			}
+   		}
+   	}
+   ```
+   ###### 3.3) processHandlerException()中使用HandlerExceptionResolver处理异常
+   ```
+   /**
+     * Determine an error ModelAndView via the registered HandlerExceptionResolvers.
+     * @param request current HTTP request
+     * @param response current HTTP response
+     * @param handler the executed handler, or {@code null} if none chosen at the time of the exception
+     * (for example, if multipart resolution failed)
+     * @param ex the exception that got thrown during handler execution
+     * @return a corresponding ModelAndView to forward to
+     * @throws Exception if no error ModelAndView found
+     */
+    protected ModelAndView processHandlerException(HttpServletRequest request, HttpServletResponse response,
+            Object handler, Exception ex) throws Exception {
+    
+        // Check registered HandlerExceptionResolvers...
+        ModelAndView exMv = null;
+        for (HandlerExceptionResolver handlerExceptionResolver : this.handlerExceptionResolvers) {
+            exMv = handlerExceptionResolver.resolveException(request, response, handler, ex);
+            if (exMv != null) {
+                break;
+            }
+        }
+        if (exMv != null) {
+            if (exMv.isEmpty()) {
+                request.setAttribute(EXCEPTION_ATTRIBUTE, ex);
+                return null;
+            }
+            // We might still need view name translation for a plain error model...
+            if (!exMv.hasView()) {
+                exMv.setViewName(getDefaultViewName(request));
+            }
+            if (logger.isDebugEnabled()) {
+                logger.debug("Handler execution resulted in exception - forwarding to resolved error view: " + exMv, ex);
+            }
+            WebUtils.exposeErrorRequestAttributes(request, ex, getServletName());
+            return exMv;
+        }
+    
+        throw ex;
+    }
+   ```
 
 
 
@@ -208,7 +296,17 @@
    
    
    
-   
+#TODO
+```
+    /** List of HandlerExceptionResolvers used by this servlet */
+	private List<HandlerExceptionResolver> handlerExceptionResolvers;
+
+	/** RequestToViewNameTranslator used by this servlet */
+	private RequestToViewNameTranslator viewNameTranslator;
+	
+	/** List of ViewResolvers used by this servlet */
+    private List<ViewResolver> viewResolvers;
+```   
    
    
    
