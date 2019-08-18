@@ -257,9 +257,169 @@
    	}
    ```
    
+   ###### 3.3)  实现父类方法 
+   ```
+   /**
+   	 * Always return {@code true} since any method argument and return value
+   	 * type will be processed in some way. A method argument not recognized
+   	 * by any HandlerMethodArgumentResolver is interpreted as a request parameter
+   	 * if it is a simple type, or as a model attribute otherwise. A return value
+   	 * not recognized by any HandlerMethodReturnValueHandler will be interpreted
+   	 * as a model attribute.
+   	 */
+   	@Override
+   	protected boolean supportsInternal(HandlerMethod handlerMethod) {
+   		return true;
+   	}
+   ``` 
    
    
-
+   
+   ```
+   // 这里主要是处理了同步异步, 实际调用处理方法委托给了invokeHandlerMethod()   
+   @Override
+   	protected ModelAndView handleInternal(HttpServletRequest request,
+   			HttpServletResponse response, HandlerMethod handlerMethod) throws Exception {
+   
+   		ModelAndView mav;
+   		checkRequest(request);
+   
+   		// Execute invokeHandlerMethod in synchronized block if required.
+   		if (this.synchronizeOnSession) {
+   			HttpSession session = request.getSession(false);
+   			if (session != null) {
+   				Object mutex = WebUtils.getSessionMutex(session);
+   				synchronized (mutex) {
+   					mav = invokeHandlerMethod(request, response, handlerMethod);
+   				}
+   			}
+   			else {
+   				// No HttpSession available -> no mutex necessary
+   				mav = invokeHandlerMethod(request, response, handlerMethod);
+   			}
+   		}
+   		else {
+   			// No synchronization on session demanded at all...
+   			mav = invokeHandlerMethod(request, response, handlerMethod);
+   		}
+   
+   		if (!response.containsHeader(HEADER_CACHE_CONTROL)) {
+   			if (getSessionAttributesHandler(handlerMethod).hasSessionAttributes()) {
+   				applyCacheSeconds(response, this.cacheSecondsForSessionAttributeHandlers);
+   			}
+   			else {
+   				prepareResponse(response);
+   			}
+   		}
+   
+   		return mav;
+   	}
+   ```
+   
+   ```
+   /**
+   	 * Invoke the {@link RequestMapping} handler method preparing a {@link ModelAndView}
+   	 * if view resolution is required.
+   	 * @since 4.2
+   	 * @see #createInvocableHandlerMethod(HandlerMethod)
+   	 */
+   	protected ModelAndView invokeHandlerMethod(HttpServletRequest request,
+   			HttpServletResponse response, HandlerMethod handlerMethod) throws Exception {
+   
+   		ServletWebRequest webRequest = new ServletWebRequest(request, response);
+   		try {
+   			WebDataBinderFactory binderFactory = getDataBinderFactory(handlerMethod);
+   			ModelFactory modelFactory = getModelFactory(handlerMethod, binderFactory);
+   
+            // 创建invocableHandlerMethod   
+   			ServletInvocableHandlerMethod invocableMethod = createInvocableHandlerMethod(handlerMethod);
+   			// 设置参数解析器  
+   			invocableMethod.setHandlerMethodArgumentResolvers(this.argumentResolvers);  
+   			// 设置参数返回值解析器 
+   			invocableMethod.setHandlerMethodReturnValueHandlers(this.returnValueHandlers);
+   			invocableMethod.setDataBinderFactory(binderFactory);
+   			invocableMethod.setParameterNameDiscoverer(this.parameterNameDiscoverer);
+   
+            // 创建modelAndView容器   
+   			ModelAndViewContainer mavContainer = new ModelAndViewContainer();
+   			mavContainer.addAllAttributes(RequestContextUtils.getInputFlashMap(request));
+   			modelFactory.initModel(webRequest, mavContainer, invocableMethod);
+   			mavContainer.setIgnoreDefaultModelOnRedirect(this.ignoreDefaultModelOnRedirect);
+   
+   			AsyncWebRequest asyncWebRequest = WebAsyncUtils.createAsyncWebRequest(request, response);
+   			asyncWebRequest.setTimeout(this.asyncRequestTimeout);
+   
+   			WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+   			asyncManager.setTaskExecutor(this.taskExecutor);
+   			asyncManager.setAsyncWebRequest(asyncWebRequest);
+   			asyncManager.registerCallableInterceptors(this.callableInterceptors);
+   			asyncManager.registerDeferredResultInterceptors(this.deferredResultInterceptors);
+   
+   			if (asyncManager.hasConcurrentResult()) {
+   				Object result = asyncManager.getConcurrentResult();
+   				mavContainer = (ModelAndViewContainer) asyncManager.getConcurrentResultContext()[0];
+   				asyncManager.clearConcurrentResult();
+   				if (logger.isDebugEnabled()) {
+   					logger.debug("Found concurrent result value [" + result + "]");
+   				}
+   				invocableMethod = invocableMethod.wrapConcurrentResult(result);
+   			}
+   
+            // 实际调用处理, 最后将model存放于ModelAndViewContainer中  
+   			invocableMethod.invokeAndHandle(webRequest, mavContainer);
+   			if (asyncManager.isConcurrentHandlingStarted()) {
+   				return null;
+   			}
+            
+   			return getModelAndView(mavContainer, modelFactory, webRequest);
+   		}
+   		finally {
+   			webRequest.requestCompleted();
+   		}
+   	}
+   ```
+   
+   ServletInvocableHandlerMethod#invokeAndHandle()
+   ```
+   /**
+   	 * Invoke the method and handle the return value through one of the
+   	 * configured {@link HandlerMethodReturnValueHandler}s.
+   	 * @param webRequest the current request
+   	 * @param mavContainer the ModelAndViewContainer for this request
+   	 * @param providedArgs "given" arguments matched by type (not resolved)
+   	 */
+   	public void invokeAndHandle(ServletWebRequest webRequest, ModelAndViewContainer mavContainer,
+   			Object... providedArgs) throws Exception {
+   
+         // 调用处理请求    
+         // 调用参数解析器,解析参数, 然后使用反射调用对应的方法 
+   		Object returnValue = invokeForRequest(webRequest, mavContainer, providedArgs);
+   		setResponseStatus(webRequest);
+   
+   		if (returnValue == null) {
+   			if (isRequestNotModified(webRequest) || getResponseStatus() != null || mavContainer.isRequestHandled()) {
+   				mavContainer.setRequestHandled(true);
+   				return;
+   			}
+   		}
+   		else if (StringUtils.hasText(getResponseStatusReason())) {
+   			mavContainer.setRequestHandled(true);
+   			return;
+   		}
+   
+   		mavContainer.setRequestHandled(false);
+   		try {
+   		    // 这里调用返回值解析器处理返回值  
+   			this.returnValueHandlers.handleReturnValue(
+   					returnValue, getReturnValueType(returnValue), mavContainer, webRequest);
+   		}
+   		catch (Exception ex) {
+   			if (logger.isTraceEnabled()) {
+   				logger.trace(getReturnValueHandlingErrorMessage("Error handling return value", returnValue), ex);
+   			}
+   			throw ex;
+   		
+   ```
 
 
 
