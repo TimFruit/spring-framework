@@ -387,4 +387,364 @@
    对于视图的渲染操作, 则委托于View对象   
 
 
+##### 5. View视图渲染  
+   对于视图的渲染操作, 则委托于View对象                                   
+   
+   View              
+       ^         
+       |   String getContentType();             
+       |   void render(Map<String, ?> model, HttpServletRequest request, 
+       |                   HttpServletResponse response) throws Exception;       
+       |                                                                                                                                                                                  
+   AbstractView             
+       ^                
+      | |   实现getContentType(), render()         
+      | |   
+      | | ======================================================== InternalResourceView, RedirectView           
+   AbstractUrlBasedView      
+       ^       
+      | |   afterPropertiesSet() 判断url是必设置属性      
+      | |     
+   AbstractTemplateView       
+       ^     
+      | |   重写AbstractView中的renderMergedOutputModel()方法     
+      | |              
+   FreeMarkerView      
+      | |     
+      | |   重写AbstractTemplateView中的renderMergedTemplateModel()方法   
+      | |     
+      
 
+
+##### 6. AbstractView     
+
+   ###### 6.1) 属性  
+   ```
+   private String contentType = DEFAULT_CONTENT_TYPE;
+   
+   	private String requestContextAttribute;
+   
+   	private final Map<String, Object> staticAttributes = new LinkedHashMap<String, Object>();
+   
+   	private boolean exposePathVariables = true;
+   
+   	private boolean exposeContextBeansAsAttributes = false;
+   
+   	private Set<String> exposedContextBeanNames;
+   
+   	private String beanName;
+   ```
+
+   ###### 6.2) 实现接口方法  
+   
+   ```
+   /**
+   	 * Prepares the view given the specified model, merging it with static
+   	 * attributes and a RequestContext attribute, if necessary.
+   	 * Delegates to renderMergedOutputModel for the actual rendering.
+   	 * @see #renderMergedOutputModel
+   	 */
+   	@Override
+   	public void render(Map<String, ?> model, HttpServletRequest request, HttpServletResponse response) throws Exception {
+   		if (logger.isTraceEnabled()) {
+   			logger.trace("Rendering view with name '" + this.beanName + "' with model " + model +
+   				" and static attributes " + this.staticAttributes);
+   		}
+   
+   		Map<String, Object> mergedModel = createMergedOutputModel(model, request, response);
+   		prepareResponse(request, response);
+   		renderMergedOutputModel(mergedModel, getRequestToExpose(request), response);
+   	}
+   ```     
+   ```
+   /**
+   	 * Creates a combined output Map (never {@code null}) that includes dynamic values and static attributes.
+   	 * Dynamic values take precedence over static attributes.
+   	 */
+   	protected Map<String, Object> createMergedOutputModel(Map<String, ?> model, HttpServletRequest request,
+   			HttpServletResponse response) {
+   
+   		@SuppressWarnings("unchecked")
+   		Map<String, Object> pathVars = (this.exposePathVariables ?
+   				(Map<String, Object>) request.getAttribute(View.PATH_VARIABLES) : null);
+   
+   		// Consolidate static and dynamic model attributes.
+   		int size = this.staticAttributes.size();
+   		size += (model != null ? model.size() : 0);
+   		size += (pathVars != null ? pathVars.size() : 0);
+   
+   		Map<String, Object> mergedModel = new LinkedHashMap<String, Object>(size);
+   		mergedModel.putAll(this.staticAttributes);
+   		if (pathVars != null) {
+   			mergedModel.putAll(pathVars);
+   		}
+   		if (model != null) {
+   			mergedModel.putAll(model);
+   		}
+   
+   		// Expose RequestContext?
+   		if (this.requestContextAttribute != null) {
+   			mergedModel.put(this.requestContextAttribute, createRequestContext(request, response, mergedModel));
+   		}
+   
+   		return mergedModel;
+   	}
+   
+   /**
+   	 * Subclasses must implement this method to actually render the view.
+   	 * <p>The first step will be preparing the request: In the JSP case,
+   	 * this would mean setting model objects as request attributes.
+   	 * The second step will be the actual rendering of the view,
+   	 * for example including the JSP via a RequestDispatcher.
+   	 * @param model combined output Map (never {@code null}),
+   	 * with dynamic values taking precedence over static attributes
+   	 * @param request current HTTP request
+   	 * @param response current HTTP response
+   	 * @throws Exception if rendering failed
+   	 */
+   	protected abstract void renderMergedOutputModel(
+   			Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) throws Exception;
+   ```
+    
+    
+##### 7. AbstractUrlBasedView     
+
+   ###### 7.1) 属性
+   ```
+   private String url;
+   ```
+   
+   ###### 7.2) 检查url
+   ```
+   @Override
+   	public void afterPropertiesSet() throws Exception {
+   		if (isUrlRequired() && getUrl() == null) {
+   			throw new IllegalArgumentException("Property 'url' is required");
+   		}
+   	}
+   ```
+    
+##### 8. AbstractTemplateView extends AbstractUrlBasedView  
+
+   ###### 8.1) 属性  
+   ```
+   private boolean exposeRequestAttributes = false;
+   
+   	private boolean allowRequestOverride = false;
+   
+   	private boolean exposeSessionAttributes = false;
+   
+   	private boolean allowSessionOverride = false;
+   
+   	private boolean exposeSpringMacroHelpers = true;
+   ```         
+    
+   ###### 8.2) 实现父类方法
+   ```
+   @Override
+   	protected final void renderMergedOutputModel(
+   			Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) throws Exception {
+   
+   		if (this.exposeRequestAttributes) {
+   			for (Enumeration<String> en = request.getAttributeNames(); en.hasMoreElements();) {
+   				String attribute = en.nextElement();
+   				if (model.containsKey(attribute) && !this.allowRequestOverride) {
+   					throw new ServletException("Cannot expose request attribute '" + attribute +
+   						"' because of an existing model object of the same name");
+   				}
+   				Object attributeValue = request.getAttribute(attribute);
+   				if (logger.isDebugEnabled()) {
+   					logger.debug("Exposing request attribute '" + attribute +
+   							"' with value [" + attributeValue + "] to model");
+   				}
+   				model.put(attribute, attributeValue);  // 从request设置属性到model
+   			}
+   		}
+   
+   		if (this.exposeSessionAttributes) {
+   			HttpSession session = request.getSession(false);
+   			if (session != null) {
+   				for (Enumeration<String> en = session.getAttributeNames(); en.hasMoreElements();) {
+   					String attribute = en.nextElement();
+   					if (model.containsKey(attribute) && !this.allowSessionOverride) {
+   						throw new ServletException("Cannot expose session attribute '" + attribute +
+   							"' because of an existing model object of the same name");
+   					}
+   					Object attributeValue = session.getAttribute(attribute);
+   					if (logger.isDebugEnabled()) {
+   						logger.debug("Exposing session attribute '" + attribute +
+   								"' with value [" + attributeValue + "] to model");
+   					}
+   					model.put(attribute, attributeValue); // 从session设置属性到model
+   				}
+   			}
+   		}
+   
+   		if (this.exposeSpringMacroHelpers) {
+   			if (model.containsKey(SPRING_MACRO_REQUEST_CONTEXT_ATTRIBUTE)) {
+   				throw new ServletException(
+   						"Cannot expose bind macro helper '" + SPRING_MACRO_REQUEST_CONTEXT_ATTRIBUTE +
+   						"' because of an existing model object of the same name");
+   			}
+   			// Expose RequestContext instance for Spring macros.
+   			model.put(SPRING_MACRO_REQUEST_CONTEXT_ATTRIBUTE,
+   					new RequestContext(request, response, getServletContext(), model));
+   		}
+   
+   		applyContentType(response);
+   
+   		renderMergedTemplateModel(model, request, response);
+   	}
+   ``` 
+   
+   
+   ```
+   /**
+   	 * Subclasses must implement this method to actually render the view.
+   	 * @param model combined output Map, with request attributes and
+   	 * session attributes merged into it if required
+   	 * @param request current HTTP request
+   	 * @param response current HTTP response
+   	 * @throws Exception if rendering failed
+   	 */
+   	protected abstract void renderMergedTemplateModel(
+   			Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) throws Exception;
+   ```
+    
+ 
+ 
+ 
+ ##### 9. FreeMarkerView extends AbstractTemplateView
+   
+   ###### 9.1) 属性    
+ 
+   ```
+   private String encoding;
+   
+   	private Configuration configuration;
+   
+   	private TaglibFactory taglibFactory;
+   
+   	private ServletContextHashModel servletContextHashModel;
+   ```
+   
+  ###### 9.2) 初始化  
+  ```
+  /**
+  	 * Invoked on startup. Looks for a single FreeMarkerConfig bean to
+  	 * find the relevant Configuration for this factory.
+  	 * <p>Checks that the template for the default Locale can be found:
+  	 * FreeMarker will check non-Locale-specific templates if a
+  	 * locale-specific one is not found.
+  	 * @see freemarker.cache.TemplateCache#getTemplate
+  	 */
+  	@Override
+  	protected void initServletContext(ServletContext servletContext) throws BeansException {
+  		if (getConfiguration() != null) {
+  			this.taglibFactory = new TaglibFactory(servletContext);
+  		}
+  		else {
+  			FreeMarkerConfig config = autodetectConfiguration();
+  			setConfiguration(config.getConfiguration());
+  			this.taglibFactory = config.getTaglibFactory();
+  		}
+  
+  		GenericServlet servlet = new GenericServletAdapter();
+  		try {
+  			servlet.init(new DelegatingServletConfig());
+  		}
+  		catch (ServletException ex) {
+  			throw new BeanInitializationException("Initialization of GenericServlet adapter failed", ex);
+  		}
+  		this.servletContextHashModel = new ServletContextHashModel(servlet, getObjectWrapper());
+  	}
+  ``` 
+ 
+  ###### 9.3) 重写AbstractUrlBasedView方法   
+  ```
+  /**
+  	 * Check that the FreeMarker template used for this view exists and is valid.
+  	 * <p>Can be overridden to customize the behavior, for example in case of
+  	 * multiple templates to be rendered into a single view.
+  	 */
+  	@Override
+  	public boolean checkResource(Locale locale) throws Exception {
+  		String url = getUrl();
+  		try {
+  			// Check that we can get the template, even if we might subsequently get it again.
+  			getTemplate(url, locale);
+  			return true;
+  		}
+  		catch (FileNotFoundException ex) {
+  			if (logger.isDebugEnabled()) {
+  				logger.debug("No FreeMarker view found for URL: " + url);
+  			}
+  			return false;
+  		}
+  		catch (ParseException ex) {
+  			throw new ApplicationContextException(
+  					"Failed to parse FreeMarker template for URL [" + url + "]", ex);
+  		}
+  		catch (IOException ex) {
+  			throw new ApplicationContextException(
+  					"Could not load FreeMarker template for URL [" + url + "]", ex);
+  		}
+  	}
+  ```     
+    
+  ###### 9.4) 重写AbstractTemplateView方法  
+  
+  ```
+  /**
+  	 * Process the model map by merging it with the FreeMarker template.
+  	 * Output is directed to the servlet response.
+  	 * <p>This method can be overridden if custom behavior is needed.
+  	 */
+  	@Override
+  	protected void renderMergedTemplateModel(
+  			Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) throws Exception {
+  
+  		exposeHelpers(model, request);
+  		doRender(model, request, response);
+  	}
+  ```
+  
+  ```
+  /**
+  	 * Render the FreeMarker view to the given response, using the given model
+  	 * map which contains the complete template model to use.
+  	 * <p>The default implementation renders the template specified by the "url"
+  	 * bean property, retrieved via {@code getTemplate}. It delegates to the
+  	 * {@code processTemplate} method to merge the template instance with
+  	 * the given template model.
+  	 * <p>Adds the standard Freemarker hash models to the model: request parameters,
+  	 * request, session and application (ServletContext), as well as the JSP tag
+  	 * library hash model.
+  	 * <p>Can be overridden to customize the behavior, for example to render
+  	 * multiple templates into a single view.
+  	 * @param model the model to use for rendering
+  	 * @param request current HTTP request
+  	 * @param response current servlet response
+  	 * @throws IOException if the template file could not be retrieved
+  	 * @throws Exception if rendering failed
+  	 * @see #setUrl
+  	 * @see org.springframework.web.servlet.support.RequestContextUtils#getLocale
+  	 * @see #getTemplate(java.util.Locale)
+  	 * @see #processTemplate
+  	 * @see freemarker.ext.servlet.FreemarkerServlet
+  	 */
+  	protected void doRender(Map<String, Object> model, HttpServletRequest request, HttpServletResponse response) throws Exception {
+  		// Expose model to JSP tags (as request attributes).
+  		exposeModelAsRequestAttributes(model, request);
+  		// Expose all standard FreeMarker hash models.
+  		SimpleHash fmModel = buildTemplateModel(model, request, response);
+  
+  		if (logger.isDebugEnabled()) {
+  			logger.debug("Rendering FreeMarker template [" + getUrl() + "] in FreeMarkerView '" + getBeanName() + "'");
+  		}
+  		// Grab the locale-specific version of the template.
+  		Locale locale = RequestContextUtils.getLocale(request);
+  		processTemplate(getTemplate(locale), fmModel, response);
+  	}
+  ```  
+                    
