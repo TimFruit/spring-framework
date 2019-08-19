@@ -31,7 +31,7 @@
    FreeMarkerViewResolver        
 
 
-##### 2. AbstractCachingViewResolver     
+##### 2. AbstractCachingViewResolver extends WebApplicationObjectSupport implements ViewResolver      
 
    ###### 2.1) 属性   
    ```
@@ -158,18 +158,233 @@
    	 * @throws Exception if the view couldn't be resolved
    	 * @see #resolveViewName
    	 */
-   	protected abstract View loadView(String viewName, Locale locale) throws Exception;
+   	protected abstract View loadView(String viewName, Locale locale) throws Exception;  // 留给子类继承  
    ```
    
    
+##### 3. UrlBasedViewResolver extends AbstractCachingViewResolver implements Ordered   
+   
+   ###### 3.1) 属性  
+   ```
+   /**
+   	 * Prefix for special view names that specify a redirect URL (usually
+   	 * to a controller after a form has been submitted and processed).
+   	 * Such view names will not be resolved in the configured default
+   	 * way but rather be treated as special shortcut.
+   	 */
+   	public static final String REDIRECT_URL_PREFIX = "redirect:";
+   
+   	/**
+   	 * Prefix for special view names that specify a forward URL (usually
+   	 * to a controller after a form has been submitted and processed).
+   	 * Such view names will not be resolved in the configured default
+   	 * way but rather be treated as special shortcut.
+   	 */
+   	public static final String FORWARD_URL_PREFIX = "forward:";
    
    
+   	private Class<?> viewClass;
+   
+   	private String prefix = "";
+   
+   	private String suffix = "";
+   
+   	private String contentType;
+   
+   	private boolean redirectContextRelative = true;
+   
+   	private boolean redirectHttp10Compatible = true;
+   
+   	private String[] redirectHosts;
+   
+   	private String requestContextAttribute;
+   
+   	/** Map of static attributes, keyed by attribute name (String) */
+   	private final Map<String, Object> staticAttributes = new HashMap<String, Object>();
+   
+   	private Boolean exposePathVariables;
+   
+   	private Boolean exposeContextBeansAsAttributes;
+   
+   	private String[] exposedContextBeanNames;
+   
+   	private String[] viewNames;
+   
+   	private int order = Ordered.LOWEST_PRECEDENCE;
+   ```
 
 
+   ###### 3.2) 初始化    
+   ```
+   @Override
+   	protected void initApplicationContext() {
+   		super.initApplicationContext();
+   		if (getViewClass() == null) {  // 仅仅判断需要设置ViewClass
+   			throw new IllegalArgumentException("Property 'viewClass' is required");
+   		}
+   	}
+   ```
+   
+   ###### 3.3) 重写AbstractCachingViewResolver方法      
+   
+   ```
+   /**
+   	 * This implementation returns just the view name,
+   	 * as this ViewResolver doesn't support localized resolution.
+   	 */
+   	@Override
+   	protected Object getCacheKey(String viewName, Locale locale) {
+   		return viewName;
+   	}
+   
+   	/**
+   	 * Overridden to implement check for "redirect:" prefix.
+   	 * <p>Not possible in {@code loadView}, since overridden
+   	 * {@code loadView} versions in subclasses might rely on the
+   	 * superclass always creating instances of the required view class.
+   	 * @see #loadView
+   	 * @see #requiredViewClass
+   	 */
+   	@Override
+   	protected View createView(String viewName, Locale locale) throws Exception {
+   		// If this resolver is not supposed to handle the given view,
+   		// return null to pass on to the next resolver in the chain.
+   		if (!canHandle(viewName, locale)) {
+   			return null;
+   		}
+   
+   		// Check for special "redirect:" prefix.
+   		if (viewName.startsWith(REDIRECT_URL_PREFIX)) {  // 创建重定向View
+   			String redirectUrl = viewName.substring(REDIRECT_URL_PREFIX.length());
+   			RedirectView view = new RedirectView(redirectUrl,
+   					isRedirectContextRelative(), isRedirectHttp10Compatible());
+   			view.setHosts(getRedirectHosts());
+   			return applyLifecycleMethods(REDIRECT_URL_PREFIX, view);
+   		}
+   
+   		// Check for special "forward:" prefix.
+   		if (viewName.startsWith(FORWARD_URL_PREFIX)) {
+   			String forwardUrl = viewName.substring(FORWARD_URL_PREFIX.length());
+   			return new InternalResourceView(forwardUrl);  // 转发内部资源, 可以共享request资源    
+   		}
+   
+   		// Else fall back to superclass implementation: calling loadView.
+   		return super.createView(viewName, locale);
+   	}
+   ```
+   
+   ###### 3.4) 实现AbstractCachingViewResolver方法
+   ```
+   /**
+   	 * Delegates to {@code buildView} for creating a new instance of the
+   	 * specified view class. Applies the following Spring lifecycle methods
+   	 * (as supported by the generic Spring bean factory):
+   	 * <ul>
+   	 * <li>ApplicationContextAware's {@code setApplicationContext}
+   	 * <li>InitializingBean's {@code afterPropertiesSet}
+   	 * </ul>
+   	 * @param viewName the name of the view to retrieve
+   	 * @return the View instance
+   	 * @throws Exception if the view couldn't be resolved
+   	 * @see #buildView(String)
+   	 * @see org.springframework.context.ApplicationContextAware#setApplicationContext
+   	 * @see org.springframework.beans.factory.InitializingBean#afterPropertiesSet
+   	 */
+   	@Override
+   	protected View loadView(String viewName, Locale locale) throws Exception {
+   		AbstractUrlBasedView view = buildView(viewName);
+   		View result = applyLifecycleMethods(viewName, view);
+   		return (view.checkResource(locale) ? result : null);
+   	}
+   ```
+   
+   ```
+   /**
+   	 * Creates a new View instance of the specified view class and configures it.
+   	 * Does <i>not</i> perform any lookup for pre-defined View instances.
+   	 * <p>Spring lifecycle methods as defined by the bean container do not have to
+   	 * be called here; those will be applied by the {@code loadView} method
+   	 * after this method returns.
+   	 * <p>Subclasses will typically call {@code super.buildView(viewName)}
+   	 * first, before setting further properties themselves. {@code loadView}
+   	 * will then apply Spring lifecycle methods at the end of this process.
+   	 * @param viewName the name of the view to build
+   	 * @return the View instance
+   	 * @throws Exception if the view couldn't be resolved
+   	 * @see #loadView(String, java.util.Locale)
+   	 */
+   	protected AbstractUrlBasedView buildView(String viewName) throws Exception {
+   		AbstractUrlBasedView view = (AbstractUrlBasedView) BeanUtils.instantiateClass(getViewClass());
+   		view.setUrl(getPrefix() + viewName + getSuffix());
+   
+   		String contentType = getContentType();
+   		if (contentType != null) {
+   			view.setContentType(contentType);
+   		}
+   
+   		view.setRequestContextAttribute(getRequestContextAttribute());
+   		view.setAttributesMap(getAttributesMap());
+   
+   		Boolean exposePathVariables = getExposePathVariables();
+   		if (exposePathVariables != null) {
+   			view.setExposePathVariables(exposePathVariables);
+   		}
+   		Boolean exposeContextBeansAsAttributes = getExposeContextBeansAsAttributes();
+   		if (exposeContextBeansAsAttributes != null) {
+   			view.setExposeContextBeansAsAttributes(exposeContextBeansAsAttributes);
+   		}
+   		String[] exposedContextBeanNames = getExposedContextBeanNames();
+   		if (exposedContextBeanNames != null) {
+   			view.setExposedContextBeanNames(exposedContextBeanNames);
+   		}
+   
+   		return view;
+   	}
+   ```   
+   
+   ```
+   private View applyLifecycleMethods(String viewName, AbstractView view) {
+   		return (View) getApplicationContext().getAutowireCapableBeanFactory().initializeBean(view, viewName);
+   	}
+   ```
 
+##### 4. FreeMarkerViewResolver extends AbstractTemplateViewResolver     
+   ```
+   /**
+   	 * Sets the default {@link #setViewClass view class} to {@link #requiredViewClass}:
+   	 * by default {@link FreeMarkerView}.
+   	 */
+   	public FreeMarkerViewResolver() {
+   		setViewClass(requiredViewClass());
+   	}
+   
+   	/**
+   	 * A convenience constructor that allows for specifying {@link #setPrefix prefix}
+   	 * and {@link #setSuffix suffix} as constructor arguments.
+   	 * @param prefix the prefix that gets prepended to view names when building a URL
+   	 * @param suffix the suffix that gets appended to view names when building a URL
+   	 * @since 4.3
+   	 */
+   	public FreeMarkerViewResolver(String prefix, String suffix) {
+   		this();
+   		setPrefix(prefix);
+   		setSuffix(suffix);
+   	}
+   
+   
+   // 主要是设置ViewClass
+   	/**
+   	 * Requires {@link FreeMarkerView}.
+   	 */
+   	@Override
+   	protected Class<?> requiredViewClass() {
+   		return FreeMarkerView.class;
+   	}
 
+   ```
 
-
+   总结, ViewResolver主要是用于查找构建View对象实例, 附加额外的公共的操作,  如缓存, 基于url的查找视图, 
+   对于视图的渲染操作, 则委托于View对象   
 
 
 
