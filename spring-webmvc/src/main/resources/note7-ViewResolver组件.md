@@ -31,12 +31,139 @@
    FreeMarkerViewResolver        
 
 
+##### 2. AbstractCachingViewResolver     
+
+   ###### 2.1) 属性   
+   ```
+   /** Default maximum number of entries for the view cache: 1024 */
+   	public static final int DEFAULT_CACHE_LIMIT = 1024;
+   
+   	/** Dummy marker object for unresolved views in the cache Maps */
+   	private static final View UNRESOLVED_VIEW = new View() {
+   		@Override
+   		public String getContentType() {
+   			return null;
+   		}
+   		@Override
+   		public void render(Map<String, ?> model, HttpServletRequest request, HttpServletResponse response) {
+   		}
+   	};
+   
+   
+   	/** The maximum number of entries in the cache */
+   	private volatile int cacheLimit = DEFAULT_CACHE_LIMIT;
+   
+   	/** Whether we should refrain from resolving views again if unresolved once */
+   	private boolean cacheUnresolved = true;
+   
+   // 缓存view   
+   	/** Fast access cache for Views, returning already cached instances without a global lock */
+   	private final Map<Object, View> viewAccessCache = new ConcurrentHashMap<Object, View>(DEFAULT_CACHE_LIMIT);
+   
+   
+   // 使用LRU缓存View实例 
+   	/** Map from view key to View instance, synchronized for View creation */
+   	@SuppressWarnings("serial")
+   	private final Map<Object, View> viewCreationCache =
+   			new LinkedHashMap<Object, View>(DEFAULT_CACHE_LIMIT, 0.75f, true) {
+   				@Override
+   				protected boolean removeEldestEntry(Map.Entry<Object, View> eldest) {
+   					if (size() > getCacheLimit()) {
+   						viewAccessCache.remove(eldest.getKey());
+   						return true;
+   					}
+   					else {
+   						return false;
+   					}
+   				}
+   			};
+   ```
 
 
+   ###### 2.2) 实现接口  
+   ```
+   @Override
+   	public View resolveViewName(String viewName, Locale locale) throws Exception {
+   		if (!isCache()) {  // 判断缓存空间大小能否继续缓存   
+   			return createView(viewName, locale); // 创建视图   
+   		}
+   		else {
+   			Object cacheKey = getCacheKey(viewName, locale);     
+   			View view = this.viewAccessCache.get(cacheKey);  // viewName + "_" + locale
+   			if (view == null) {
+   				synchronized (this.viewCreationCache) { //全局锁  
+   					view = this.viewCreationCache.get(cacheKey);
+   					if (view == null) {
+   						// Ask the subclass to create the View object.
+   						view = createView(viewName, locale);
+   						if (view == null && this.cacheUnresolved) {
+   							view = UNRESOLVED_VIEW;
+   						}
+   						if (view != null) {
+   							this.viewAccessCache.put(cacheKey, view);  // 存放进去  
+   							this.viewCreationCache.put(cacheKey, view);
+   							if (logger.isTraceEnabled()) {
+   								logger.trace("Cached view [" + cacheKey + "]");
+   							}
+   						}
+   					}
+   				}
+   			}
+   			return (view != UNRESOLVED_VIEW ? view : null);
+   		}
+   	}
+   ```
 
-
-
-
+   ```
+   /**
+   	 * Return the cache key for the given view name and the given locale.
+   	 * <p>Default is a String consisting of view name and locale suffix.
+   	 * Can be overridden in subclasses.
+   	 * <p>Needs to respect the locale in general, as a different locale can
+   	 * lead to a different view resource.
+   	 */
+   	protected Object getCacheKey(String viewName, Locale locale) {
+   		return viewName + '_' + locale;
+   	}
+   ```  
+   
+   ```
+   /**
+   	 * Create the actual View object.
+   	 * <p>The default implementation delegates to {@link #loadView}.
+   	 * This can be overridden to resolve certain view names in a special fashion,
+   	 * before delegating to the actual {@code loadView} implementation
+   	 * provided by the subclass.
+   	 * @param viewName the name of the view to retrieve
+   	 * @param locale the Locale to retrieve the view for
+   	 * @return the View instance, or {@code null} if not found
+   	 * (optional, to allow for ViewResolver chaining)
+   	 * @throws Exception if the view couldn't be resolved
+   	 * @see #loadView
+   	 */
+   	protected View createView(String viewName, Locale locale) throws Exception {
+   		return loadView(viewName, locale);
+   	}
+   
+   	/**
+   	 * Subclasses must implement this method, building a View object
+   	 * for the specified view. The returned View objects will be
+   	 * cached by this ViewResolver base class.
+   	 * <p>Subclasses are not forced to support internationalization:
+   	 * A subclass that does not may simply ignore the locale parameter.
+   	 * @param viewName the name of the view to retrieve
+   	 * @param locale the Locale to retrieve the view for
+   	 * @return the View instance, or {@code null} if not found
+   	 * (optional, to allow for ViewResolver chaining)
+   	 * @throws Exception if the view couldn't be resolved
+   	 * @see #resolveViewName
+   	 */
+   	protected abstract View loadView(String viewName, Locale locale) throws Exception;
+   ```
+   
+   
+   
+   
 
 
 
