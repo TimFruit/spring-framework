@@ -16,16 +16,15 @@
 
 package org.springframework.web.servlet.handler;
 
-import java.util.Set;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-
 import org.springframework.core.Ordered;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 import org.springframework.web.servlet.ModelAndView;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.util.Set;
 
 /**
  * Abstract base class for {@link HandlerExceptionResolver} implementations.
@@ -126,9 +125,9 @@ public abstract class AbstractHandlerExceptionResolver implements HandlerExcepti
 	public ModelAndView resolveException(
 			HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
 
-		if (shouldApplyTo(request, handler)) {
-			prepareResponse(ex, response);
-			ModelAndView result = doResolveException(request, response, handler, ex);
+		if (shouldApplyTo(request, handler)) { // 判断本exceptionResolver是否适用于本handler
+			prepareResponse(ex, response);  // 准备response  
+			ModelAndView result = doResolveException(request, response, handler, ex); // 留有模板给子类实现 
 			if (result != null) {
 				// Print debug message when warn logger is not enabled.
 				if (logger.isDebugEnabled() && (this.warnLogger == null || !this.warnLogger.isWarnEnabled())) {
